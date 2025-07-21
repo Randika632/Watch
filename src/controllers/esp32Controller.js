@@ -7,15 +7,17 @@ const getLatestData = async (req, res) => {
     const snapshot = await dataRef.once('value');
     const data = snapshot.val() || {};
     
+    console.log('Raw ESP32 data:', data);
+
     // Return default data structure even if no data is found
     const defaultData = {
       latitude: 0,
       longitude: 0,
       gps_valid: false,
-      timestamp: new Date().toISOString(),  // This will be the actual current time
+      timestamp: new Date().toISOString(),
       wifi_connected: false,
       firebase_ready: false,
-      last_update: Date.now()  // Add millisecond timestamp for easier comparison
+      last_update: Date.now()
     };
 
     const responseData = {
@@ -26,10 +28,10 @@ const getLatestData = async (req, res) => {
       last_update: data.last_update || defaultData.last_update
     };
 
+    console.log('Processed GPS data:', responseData);
     res.json({ data: responseData });
   } catch (error) {
     console.error('Error fetching ESP32 data:', error);
-    // Return default offline data instead of error
     res.json({ 
       data: {
         latitude: 0,
@@ -128,64 +130,49 @@ const getStatus = async (req, res) => {
 const getHealthData = async (req, res) => {
   try {
     console.log('Backend: Fetching health data from Firebase...');
-    const dataRef = db.ref('health-tracker/latest-health');
-    console.log('Backend: Firebase reference created, fetching data...');
     
-    const snapshot = await dataRef.once('value');
-    console.log('Backend: Firebase snapshot received');
+    // Get both current status and health data
+    const statusRef = db.ref('health-tracker/current-status');
+    const healthRef = db.ref('health-tracker/latest-health');
     
-    const data = snapshot.val();
-    console.log('Backend: Firebase data:', data);
+    const [statusSnapshot, healthSnapshot] = await Promise.all([
+      statusRef.once('value'),
+      healthRef.once('value')
+    ]);
+    
+    const statusData = statusSnapshot.val() || {};
+    const healthData = healthSnapshot.val() || {};
+    
+    console.log('Raw status data:', statusData);
+    console.log('Raw health data:', healthData);
     
     const currentTime = new Date();
     const currentTimestamp = currentTime.toISOString();
-    const currentMillis = Date.now();
 
-    // Create default health data structure
-    const healthData = {
+    // Create health data structure
+    const healthResponse = {
       heartRate: {
-        bpm: 0,
-        valid: false,
-        status: 'No Signal',
-        zone: 'No Signal'
+        bpm: healthData.bpm || statusData.bpm || 0,
+        valid: healthData.valid_bpm || statusData.bpm_valid || false,
+        status: getHeartRateStatus(healthData.bpm || statusData.bpm),
+        zone: getHeartRateZone(healthData.bpm || statusData.bpm)
       },
       pulse: {
-        value: 0,
+        value: healthData.pulse_value || statusData.pulse_value || 0,
         threshold: 3300,
-        signal: 'No Signal'
+        signal: getPulseSignalStatus(healthData.pulse_value || statusData.pulse_value)
       },
-      waveform: [],
-      timestamp: currentTimestamp,
-      last_update: currentMillis,
-      device: 'ESP32_Health_Tracker',
-      healthId: 'offline'
+      waveform: healthData.waveform || [],
+      timestamp: statusData.timestamp || healthData.timestamp || currentTimestamp,
+      last_update: statusData.last_update || Date.now(),
+      device: statusData.device || 'ESP32_Health_Tracker',
+      healthId: healthData.health_id || 'current'
     };
 
-    // If we have data, merge it with default structure
-    if (data) {
-      healthData.heartRate.bpm = data.bpm || 0;
-      healthData.heartRate.valid = data.valid_bpm || false;
-      healthData.heartRate.status = getHeartRateStatus(data.bpm);
-      healthData.heartRate.zone = getHeartRateZone(data.bpm);
-      healthData.pulse.value = data.pulse_value || 0;
-      healthData.pulse.signal = getPulseSignalStatus(data.pulse_value);
-      healthData.waveform = data.waveform || [];
-      // Only use data timestamp if it's valid and not in the future
-      if (data.timestamp && new Date(data.timestamp) <= currentTime) {
-        healthData.timestamp = data.timestamp;
-        healthData.last_update = new Date(data.timestamp).getTime();
-      }
-      healthData.device = data.device || healthData.device;
-      healthData.healthId = data.health_id || healthData.healthId;
-    }
-    
-    console.log('Backend: Sending health data to frontend:', healthData);
-    res.json({ data: healthData });
+    console.log('Processed health data:', healthResponse);
+    res.json({ data: healthResponse });
   } catch (error) {
     console.error('Backend: Error fetching heartbeat data:', error);
-    console.error('Backend: Error details:', error.message);
-    
-    // Return default offline data instead of error
     res.json({ 
       data: {
         heartRate: {
