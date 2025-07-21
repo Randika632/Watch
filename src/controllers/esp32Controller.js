@@ -49,27 +49,27 @@ const getStatus = async (req, res) => {
   try {
     const dataRef = db.ref('health-tracker/current-status');
     const snapshot = await dataRef.once('value');
-    const data = snapshot.val();
+    const data = snapshot.val() || {};
     
-    if (!data) {
-      return res.status(404).json({ message: 'No ESP32 status found' });
-    }
-    
+    // Return simplified status object matching frontend expectations
+    // Default all values to false if data is missing
     const status = {
-      status: data.wifi_connected && data.firebase_ready ? 'online' : 'offline',
-      device: data.device || 'ESP32_Health_Tracker',
-      lastUpdate: data.timestamp ? new Date(data.timestamp).toISOString() : null,
-      features: ['GPS Tracking', 'Heart Rate Monitoring'],
-      wifi: data.wifi_connected,
-      firebase: data.firebase_ready,
-      gps: data.gps_valid,
-      heartbeat: data.bpm_valid
+      wifi: Boolean(data.wifi_connected),
+      gps: Boolean(data.gps_valid),
+      heartbeat: Boolean(data.bpm_valid),
+      lastUpdate: data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()
     };
     
-    res.json({ data: status });
+    res.json(status);
   } catch (error) {
     console.error('Error fetching ESP32 status:', error);
-    res.status(500).json({ message: 'Error fetching ESP32 status' });
+    // Return offline status instead of error
+    res.json({
+      wifi: false,
+      gps: false,
+      heartbeat: false,
+      lastUpdate: new Date().toISOString()
+    });
   }
 };
 
