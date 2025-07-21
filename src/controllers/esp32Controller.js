@@ -12,17 +12,21 @@ const getLatestData = async (req, res) => {
       latitude: 0,
       longitude: 0,
       gps_valid: false,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString(),  // This will be the actual current time
       wifi_connected: false,
-      firebase_ready: false
+      firebase_ready: false,
+      last_update: Date.now()  // Add millisecond timestamp for easier comparison
     };
 
-    res.json({ 
-      data: {
-        ...defaultData,
-        ...data
-      }
-    });
+    const responseData = {
+      ...defaultData,
+      ...data,
+      // Ensure timestamp is always valid and current when no data
+      timestamp: data.timestamp || defaultData.timestamp,
+      last_update: data.last_update || defaultData.last_update
+    };
+
+    res.json({ data: responseData });
   } catch (error) {
     console.error('Error fetching ESP32 data:', error);
     // Return default offline data instead of error
@@ -32,6 +36,7 @@ const getLatestData = async (req, res) => {
         longitude: 0,
         gps_valid: false,
         timestamp: new Date().toISOString(),
+        last_update: Date.now(),
         wifi_connected: false,
         firebase_ready: false
       }
@@ -107,6 +112,10 @@ const getHealthData = async (req, res) => {
     const data = snapshot.val();
     console.log('Backend: Firebase data:', data);
     
+    const currentTime = new Date();
+    const currentTimestamp = currentTime.toISOString();
+    const currentMillis = Date.now();
+
     // Create default health data structure
     const healthData = {
       heartRate: {
@@ -121,7 +130,8 @@ const getHealthData = async (req, res) => {
         signal: 'No Signal'
       },
       waveform: [],
-      timestamp: new Date().toISOString(),
+      timestamp: currentTimestamp,
+      last_update: currentMillis,
       device: 'ESP32_Health_Tracker',
       healthId: 'offline'
     };
@@ -135,7 +145,11 @@ const getHealthData = async (req, res) => {
       healthData.pulse.value = data.pulse_value || 0;
       healthData.pulse.signal = getPulseSignalStatus(data.pulse_value);
       healthData.waveform = data.waveform || [];
-      healthData.timestamp = data.timestamp || healthData.timestamp;
+      // Only use data timestamp if it's valid and not in the future
+      if (data.timestamp && new Date(data.timestamp) <= currentTime) {
+        healthData.timestamp = data.timestamp;
+        healthData.last_update = new Date(data.timestamp).getTime();
+      }
       healthData.device = data.device || healthData.device;
       healthData.healthId = data.health_id || healthData.healthId;
     }
@@ -162,6 +176,7 @@ const getHealthData = async (req, res) => {
         },
         waveform: [],
         timestamp: new Date().toISOString(),
+        last_update: Date.now(),
         device: 'ESP32_Health_Tracker',
         healthId: 'offline'
       }
