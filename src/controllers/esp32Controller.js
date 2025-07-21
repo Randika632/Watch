@@ -80,6 +80,14 @@ let statusCache = {
 // Get current ESP32 status
 const getStatus = async (req, res) => {
   try {
+    const now = Date.now();
+
+    // Check cache
+    if (statusCache.data && statusCache.timestamp && (now - statusCache.timestamp < statusCache.ttl)) {
+      console.log('Using cached ESP32 status data');
+      return res.json({ data: statusCache.data });
+    }
+
     const dataRef = db.ref('health-tracker/current-status');
     const snapshot = await dataRef.once('value');
     const data = snapshot.val() || {};
@@ -92,19 +100,27 @@ const getStatus = async (req, res) => {
       heartbeat: Boolean(data.bpm_valid),
       lastUpdate: data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()
     };
+
+    // Update cache
+    statusCache.data = status;
+    statusCache.timestamp = now;
     
     res.json({ data: status });
   } catch (error) {
     console.error('Error fetching ESP32 status:', error);
     // Return offline status instead of error
-    res.json({
-      data: {
-        wifi: false,
-        gps: false,
-        heartbeat: false,
-        lastUpdate: new Date().toISOString()
-      }
-    });
+    const offlineStatus = {
+      wifi: false,
+      gps: false,
+      heartbeat: false,
+      lastUpdate: new Date().toISOString()
+    };
+
+    // Update cache with offline status
+    statusCache.data = offlineStatus;
+    statusCache.timestamp = Date.now();
+    
+    res.json({ data: offlineStatus });
   }
 };
 
