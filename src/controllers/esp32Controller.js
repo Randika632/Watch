@@ -77,13 +77,16 @@ const getStatus = async (req, res) => {
     const snapshot = await dataRef.once('value');
     const data = snapshot.val() || {};
     
+    // Get current timestamp in ISO format
+    const now = new Date().toISOString();
+    
     // Return simplified status object matching frontend expectations
     // Default all values to false if data is missing
     const status = {
       wifi: Boolean(data.wifi_connected),
       gps: Boolean(data.gps_valid),
       heartbeat: Boolean(data.bpm_valid),
-      lastUpdate: data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()
+      lastUpdate: data.timestamp ? new Date(data.timestamp).toISOString() : now
     };
     
     // Wrap the status in a data object to match frontend expectations
