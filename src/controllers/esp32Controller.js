@@ -86,15 +86,18 @@ const getStatus = async (req, res) => {
       lastUpdate: data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()
     };
     
-    res.json(status);
+    // Wrap the status in a data object to match frontend expectations
+    res.json({ data: status });
   } catch (error) {
     console.error('Error fetching ESP32 status:', error);
     // Return offline status instead of error
     res.json({
-      wifi: false,
-      gps: false,
-      heartbeat: false,
-      lastUpdate: new Date().toISOString()
+      data: {
+        wifi: false,
+        gps: false,
+        heartbeat: false,
+        lastUpdate: new Date().toISOString()
+      }
     });
   }
 };
