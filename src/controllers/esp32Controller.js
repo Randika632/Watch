@@ -5,16 +5,37 @@ const getLatestData = async (req, res) => {
   try {
     const dataRef = db.ref('health-tracker/current-status');
     const snapshot = await dataRef.once('value');
-    const data = snapshot.val();
+    const data = snapshot.val() || {};
     
-    if (!data) {
-      return res.status(404).json({ message: 'No ESP32 data found' });
-    }
-    
-    res.json({ data });
+    // Return default data structure even if no data is found
+    const defaultData = {
+      latitude: 0,
+      longitude: 0,
+      gps_valid: false,
+      timestamp: new Date().toISOString(),
+      wifi_connected: false,
+      firebase_ready: false
+    };
+
+    res.json({ 
+      data: {
+        ...defaultData,
+        ...data
+      }
+    });
   } catch (error) {
     console.error('Error fetching ESP32 data:', error);
-    res.status(500).json({ message: 'Error fetching ESP32 data' });
+    // Return default offline data instead of error
+    res.json({ 
+      data: {
+        latitude: 0,
+        longitude: 0,
+        gps_valid: false,
+        timestamp: new Date().toISOString(),
+        wifi_connected: false,
+        firebase_ready: false
+      }
+    });
   }
 };
 
@@ -86,35 +107,65 @@ const getHealthData = async (req, res) => {
     const data = snapshot.val();
     console.log('Backend: Firebase data:', data);
     
-    if (!data) {
-      console.log('Backend: No heartbeat data found in Firebase');
-      return res.status(404).json({ message: 'No heartbeat data found' });
-    }
-    
+    // Create default health data structure
     const healthData = {
       heartRate: {
-        bpm: data.bpm || 0,
-        valid: data.valid_bpm || false,
-        status: getHeartRateStatus(data.bpm),
-        zone: getHeartRateZone(data.bpm)
+        bpm: 0,
+        valid: false,
+        status: 'No Signal',
+        zone: 'No Signal'
       },
       pulse: {
-        value: data.pulse_value || 0,
-        threshold: 3300, 
-        signal: getPulseSignalStatus(data.pulse_value)
+        value: 0,
+        threshold: 3300,
+        signal: 'No Signal'
       },
-      waveform: data.waveform || [],
-      timestamp: data.timestamp,
-      device: data.device || 'ESP32_Health_Tracker',
-      healthId: data.health_id
+      waveform: [],
+      timestamp: new Date().toISOString(),
+      device: 'ESP32_Health_Tracker',
+      healthId: 'offline'
     };
+
+    // If we have data, merge it with default structure
+    if (data) {
+      healthData.heartRate.bpm = data.bpm || 0;
+      healthData.heartRate.valid = data.valid_bpm || false;
+      healthData.heartRate.status = getHeartRateStatus(data.bpm);
+      healthData.heartRate.zone = getHeartRateZone(data.bpm);
+      healthData.pulse.value = data.pulse_value || 0;
+      healthData.pulse.signal = getPulseSignalStatus(data.pulse_value);
+      healthData.waveform = data.waveform || [];
+      healthData.timestamp = data.timestamp || healthData.timestamp;
+      healthData.device = data.device || healthData.device;
+      healthData.healthId = data.health_id || healthData.healthId;
+    }
     
     console.log('Backend: Sending health data to frontend:', healthData);
     res.json({ data: healthData });
   } catch (error) {
     console.error('Backend: Error fetching heartbeat data:', error);
     console.error('Backend: Error details:', error.message);
-    res.status(500).json({ message: `Error fetching heartbeat data: ${error.message}` });
+    
+    // Return default offline data instead of error
+    res.json({ 
+      data: {
+        heartRate: {
+          bpm: 0,
+          valid: false,
+          status: 'No Signal',
+          zone: 'No Signal'
+        },
+        pulse: {
+          value: 0,
+          threshold: 3300,
+          signal: 'No Signal'
+        },
+        waveform: [],
+        timestamp: new Date().toISOString(),
+        device: 'ESP32_Health_Tracker',
+        healthId: 'offline'
+      }
+    });
   }
 };
 
