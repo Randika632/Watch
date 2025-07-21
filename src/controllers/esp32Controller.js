@@ -70,9 +70,23 @@ const getDataHistory = async (req, res) => {
   }
 };
 
+// Cache for ESP32 status
+let statusCache = {
+  data: null,
+  timestamp: null,
+  ttl: 2000 // 2 seconds TTL
+};
+
 // Get current ESP32 status
 const getStatus = async (req, res) => {
   try {
+    const now = Date.now();
+
+    // Check cache
+    if (statusCache.data && statusCache.timestamp && (now - statusCache.timestamp < statusCache.ttl)) {
+      return res.json({ data: statusCache.data });
+    }
+
     const dataRef = db.ref('health-tracker/current-status');
     const snapshot = await dataRef.once('value');
     const data = snapshot.val() || {};
@@ -85,8 +99,11 @@ const getStatus = async (req, res) => {
       heartbeat: Boolean(data.bpm_valid),
       lastUpdate: data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()
     };
+
+    // Update cache
+    statusCache.data = status;
+    statusCache.timestamp = now;
     
-    // Wrap the status in a data object to match frontend expectations
     res.json({ data: status });
   } catch (error) {
     console.error('Error fetching ESP32 status:', error);
