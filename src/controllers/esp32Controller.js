@@ -7,17 +7,15 @@ const getLatestData = async (req, res) => {
     const snapshot = await dataRef.once('value');
     const data = snapshot.val() || {};
     
-    console.log('Raw ESP32 data:', data);
-
     // Return default data structure even if no data is found
     const defaultData = {
       latitude: 0,
       longitude: 0,
       gps_valid: false,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString(),  // This will be the actual current time
       wifi_connected: false,
       firebase_ready: false,
-      last_update: Date.now()
+      last_update: Date.now()  // Add millisecond timestamp for easier comparison
     };
 
     const responseData = {
@@ -28,10 +26,10 @@ const getLatestData = async (req, res) => {
       last_update: data.last_update || defaultData.last_update
     };
 
-    console.log('Processed GPS data:', responseData);
     res.json({ data: responseData });
   } catch (error) {
     console.error('Error fetching ESP32 data:', error);
+    // Return default offline data instead of error
     res.json({ 
       data: {
         latitude: 0,
@@ -72,24 +70,9 @@ const getDataHistory = async (req, res) => {
   }
 };
 
-// Cache for ESP32 status
-let statusCache = {
-  data: null,
-  timestamp: null,
-  ttl: 2000 // 2 seconds TTL
-};
-
 // Get current ESP32 status
 const getStatus = async (req, res) => {
   try {
-    const now = Date.now();
-
-    // Check cache
-    if (statusCache.data && statusCache.timestamp && (now - statusCache.timestamp < statusCache.ttl)) {
-      console.log('Using cached ESP32 status data');
-      return res.json({ data: statusCache.data });
-    }
-
     const dataRef = db.ref('health-tracker/current-status');
     const snapshot = await dataRef.once('value');
     const data = snapshot.val() || {};
@@ -102,27 +85,17 @@ const getStatus = async (req, res) => {
       heartbeat: Boolean(data.bpm_valid),
       lastUpdate: data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()
     };
-
-    // Update cache
-    statusCache.data = status;
-    statusCache.timestamp = now;
     
-    res.json({ data: status });
+    res.json(status);
   } catch (error) {
     console.error('Error fetching ESP32 status:', error);
     // Return offline status instead of error
-    const offlineStatus = {
+    res.json({
       wifi: false,
       gps: false,
       heartbeat: false,
       lastUpdate: new Date().toISOString()
-    };
-
-    // Update cache with offline status
-    statusCache.data = offlineStatus;
-    statusCache.timestamp = Date.now();
-    
-    res.json({ data: offlineStatus });
+    });
   }
 };
 
@@ -130,74 +103,64 @@ const getStatus = async (req, res) => {
 const getHealthData = async (req, res) => {
   try {
     console.log('Backend: Fetching health data from Firebase...');
+    const dataRef = db.ref('health-tracker/latest-health');
+    console.log('Backend: Firebase reference created, fetching data...');
     
-    // Get both current status and health data
-    const statusRef = db.ref('health-tracker/current-status');
-    const healthRef = db.ref('health-tracker/latest-health');
+    const snapshot = await dataRef.once('value');
+    console.log('Backend: Firebase snapshot received');
     
-    const [statusSnapshot, healthSnapshot] = await Promise.all([
-      statusRef.once('value'),
-      healthRef.once('value')
-    ]);
-    
-    const statusData = statusSnapshot.val() || {};
-    const healthData = healthSnapshot.val() || {};
-    
-    console.log('Raw status data:', statusData);
-    console.log('Raw health data:', healthData);
+    const data = snapshot.val();
+    console.log('Backend: Firebase data:', data);
     
     const currentTime = new Date();
     const currentTimestamp = currentTime.toISOString();
+    const currentMillis = Date.now();
 
-    // Get heart rate
-    const heartRate = healthData.bpm || statusData.bpm || 0;
-    
-    // Get user profile data (if available) or use defaults
-    const userProfile = healthData.userProfile || {
-      age: 30,
-      isMale: true,
-      weight: 70,
-      height: 170
-    };
-
-    // Predict blood pressure
-    const bloodPressure = predictBloodPressure(
-      heartRate,
-      userProfile.age,
-      userProfile.isMale,
-      userProfile.weight,
-      userProfile.height
-    );
-
-    // Create health data structure
-    const healthResponse = {
+    // Create default health data structure
+    const healthData = {
       heartRate: {
-        bpm: heartRate,
-        valid: healthData.valid_bpm || statusData.bpm_valid || false,
-        status: getHeartRateStatus(heartRate),
-        zone: getHeartRateZone(heartRate)
-      },
-      bloodPressure: {
-        ...bloodPressure,
-        lastUpdated: currentTimestamp,
-        note: 'Estimated based on heart rate and user profile'
+        bpm: 0,
+        valid: false,
+        status: 'No Signal',
+        zone: 'No Signal'
       },
       pulse: {
-        value: healthData.pulse_value || statusData.pulse_value || 0,
+        value: 0,
         threshold: 3300,
-        signal: getPulseSignalStatus(healthData.pulse_value || statusData.pulse_value)
+        signal: 'No Signal'
       },
-      waveform: healthData.waveform || [],
-      timestamp: statusData.timestamp || healthData.timestamp || currentTimestamp,
-      last_update: statusData.last_update || Date.now(),
-      device: statusData.device || 'ESP32_Health_Tracker',
-      healthId: healthData.health_id || 'current'
+      waveform: [],
+      timestamp: currentTimestamp,
+      last_update: currentMillis,
+      device: 'ESP32_Health_Tracker',
+      healthId: 'offline'
     };
 
-    console.log('Processed health data with BP prediction:', healthResponse);
-    res.json({ data: healthResponse });
+    // If we have data, merge it with default structure
+    if (data) {
+      healthData.heartRate.bpm = data.bpm || 0;
+      healthData.heartRate.valid = data.valid_bpm || false;
+      healthData.heartRate.status = getHeartRateStatus(data.bpm);
+      healthData.heartRate.zone = getHeartRateZone(data.bpm);
+      healthData.pulse.value = data.pulse_value || 0;
+      healthData.pulse.signal = getPulseSignalStatus(data.pulse_value);
+      healthData.waveform = data.waveform || [];
+      // Only use data timestamp if it's valid and not in the future
+      if (data.timestamp && new Date(data.timestamp) <= currentTime) {
+        healthData.timestamp = data.timestamp;
+        healthData.last_update = new Date(data.timestamp).getTime();
+      }
+      healthData.device = data.device || healthData.device;
+      healthData.healthId = data.health_id || healthData.healthId;
+    }
+    
+    console.log('Backend: Sending health data to frontend:', healthData);
+    res.json({ data: healthData });
   } catch (error) {
     console.error('Backend: Error fetching heartbeat data:', error);
+    console.error('Backend: Error details:', error.message);
+    
+    // Return default offline data instead of error
     res.json({ 
       data: {
         heartRate: {
@@ -205,12 +168,6 @@ const getHealthData = async (req, res) => {
           valid: false,
           status: 'No Signal',
           zone: 'No Signal'
-        },
-        bloodPressure: {
-          systolic: 0,
-          diastolic: 0,
-          valid: false,
-          message: 'No data available'
         },
         pulse: {
           value: 0,
@@ -343,68 +300,6 @@ function getHeartRateStatus(bpm) {
   if (bpm >= 60 && bpm <= 100) return 'Normal';
   if (bpm > 100 && bpm <= 140) return 'Elevated';
   return 'High';
-}
-
-// Blood Pressure Prediction Functions
-function predictBloodPressure(heartRate, age = 30, isMale = true, weight = 70, height = 170) {
-  // This is a simplified estimation model
-  // In reality, blood pressure depends on many factors and should be measured directly
-  
-  if (!heartRate || heartRate < 30 || heartRate > 220) {
-    return {
-      systolic: 0,
-      diastolic: 0,
-      valid: false,
-      message: 'Invalid heart rate'
-    };
-  }
-
-  // Base values
-  let baseSystolic = 120;
-  let baseDiastolic = 80;
-
-  // Heart rate factor (simplified relationship)
-  const hrFactor = (heartRate - 70) * 0.5; // Assume each 1 bpm above/below 70 changes BP by 0.5 mmHg
-
-  // Age factor (simplified)
-  const ageFactor = Math.max(0, (age - 30) * 0.3);
-
-  // BMI factor (simplified)
-  const bmi = weight / ((height / 100) ** 2);
-  const bmiFactor = Math.max(0, (bmi - 25) * 0.5);
-
-  // Gender factor (simplified)
-  const genderFactor = isMale ? 2 : 0;
-
-  // Calculate estimated blood pressure
-  const systolic = Math.round(baseSystolic + hrFactor + ageFactor + bmiFactor + genderFactor);
-  const diastolic = Math.round(baseDiastolic + (hrFactor * 0.5) + (ageFactor * 0.5) + (bmiFactor * 0.5));
-
-  // Classify blood pressure
-  let category = '';
-  if (systolic < 120 && diastolic < 80) {
-    category = 'Normal';
-  } else if (systolic < 130 && diastolic < 80) {
-    category = 'Elevated';
-  } else if (systolic < 140 || diastolic < 90) {
-    category = 'Stage 1 Hypertension';
-  } else {
-    category = 'Stage 2 Hypertension';
-  }
-
-  return {
-    systolic,
-    diastolic,
-    category,
-    valid: true,
-    confidence: 'Low', // Always indicate this is an estimation
-    factors: {
-      heartRateFactor: hrFactor,
-      ageFactor,
-      bmiFactor,
-      genderFactor
-    }
-  };
 }
 
 function getHeartRateZone(bpm) {
