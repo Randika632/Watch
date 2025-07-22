@@ -149,13 +149,38 @@ const getHealthData = async (req, res) => {
     const currentTime = new Date();
     const currentTimestamp = currentTime.toISOString();
 
+    // Get heart rate
+    const heartRate = healthData.bpm || statusData.bpm || 0;
+    
+    // Get user profile data (if available) or use defaults
+    const userProfile = healthData.userProfile || {
+      age: 30,
+      isMale: true,
+      weight: 70,
+      height: 170
+    };
+
+    // Predict blood pressure
+    const bloodPressure = predictBloodPressure(
+      heartRate,
+      userProfile.age,
+      userProfile.isMale,
+      userProfile.weight,
+      userProfile.height
+    );
+
     // Create health data structure
     const healthResponse = {
       heartRate: {
-        bpm: healthData.bpm || statusData.bpm || 0,
+        bpm: heartRate,
         valid: healthData.valid_bpm || statusData.bpm_valid || false,
-        status: getHeartRateStatus(healthData.bpm || statusData.bpm),
-        zone: getHeartRateZone(healthData.bpm || statusData.bpm)
+        status: getHeartRateStatus(heartRate),
+        zone: getHeartRateZone(heartRate)
+      },
+      bloodPressure: {
+        ...bloodPressure,
+        lastUpdated: currentTimestamp,
+        note: 'Estimated based on heart rate and user profile'
       },
       pulse: {
         value: healthData.pulse_value || statusData.pulse_value || 0,
@@ -169,7 +194,7 @@ const getHealthData = async (req, res) => {
       healthId: healthData.health_id || 'current'
     };
 
-    console.log('Processed health data:', healthResponse);
+    console.log('Processed health data with BP prediction:', healthResponse);
     res.json({ data: healthResponse });
   } catch (error) {
     console.error('Backend: Error fetching heartbeat data:', error);
@@ -180,6 +205,12 @@ const getHealthData = async (req, res) => {
           valid: false,
           status: 'No Signal',
           zone: 'No Signal'
+        },
+        bloodPressure: {
+          systolic: 0,
+          diastolic: 0,
+          valid: false,
+          message: 'No data available'
         },
         pulse: {
           value: 0,
@@ -312,6 +343,68 @@ function getHeartRateStatus(bpm) {
   if (bpm >= 60 && bpm <= 100) return 'Normal';
   if (bpm > 100 && bpm <= 140) return 'Elevated';
   return 'High';
+}
+
+// Blood Pressure Prediction Functions
+function predictBloodPressure(heartRate, age = 30, isMale = true, weight = 70, height = 170) {
+  // This is a simplified estimation model
+  // In reality, blood pressure depends on many factors and should be measured directly
+  
+  if (!heartRate || heartRate < 30 || heartRate > 220) {
+    return {
+      systolic: 0,
+      diastolic: 0,
+      valid: false,
+      message: 'Invalid heart rate'
+    };
+  }
+
+  // Base values
+  let baseSystolic = 120;
+  let baseDiastolic = 80;
+
+  // Heart rate factor (simplified relationship)
+  const hrFactor = (heartRate - 70) * 0.5; // Assume each 1 bpm above/below 70 changes BP by 0.5 mmHg
+
+  // Age factor (simplified)
+  const ageFactor = Math.max(0, (age - 30) * 0.3);
+
+  // BMI factor (simplified)
+  const bmi = weight / ((height / 100) ** 2);
+  const bmiFactor = Math.max(0, (bmi - 25) * 0.5);
+
+  // Gender factor (simplified)
+  const genderFactor = isMale ? 2 : 0;
+
+  // Calculate estimated blood pressure
+  const systolic = Math.round(baseSystolic + hrFactor + ageFactor + bmiFactor + genderFactor);
+  const diastolic = Math.round(baseDiastolic + (hrFactor * 0.5) + (ageFactor * 0.5) + (bmiFactor * 0.5));
+
+  // Classify blood pressure
+  let category = '';
+  if (systolic < 120 && diastolic < 80) {
+    category = 'Normal';
+  } else if (systolic < 130 && diastolic < 80) {
+    category = 'Elevated';
+  } else if (systolic < 140 || diastolic < 90) {
+    category = 'Stage 1 Hypertension';
+  } else {
+    category = 'Stage 2 Hypertension';
+  }
+
+  return {
+    systolic,
+    diastolic,
+    category,
+    valid: true,
+    confidence: 'Low', // Always indicate this is an estimation
+    factors: {
+      heartRateFactor: hrFactor,
+      ageFactor,
+      bmiFactor,
+      genderFactor
+    }
+  };
 }
 
 function getHeartRateZone(bpm) {
