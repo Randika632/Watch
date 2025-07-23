@@ -21,7 +21,8 @@ router.use('/reports', require('./report'));
 // Mount ESP32 router at /esp32
 router.use('/esp32', require('./esp32'));
 
-// TODO: router.use('/health', require('./health'));
+// Mount health router at /health
+router.use('/health', require('./health'));
 // TODO: router.use('/location', require('./location'));
 
 module.exports = router; 
