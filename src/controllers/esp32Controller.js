@@ -1,4 +1,5 @@
 const { db } = require('../config/firebase');
+const Health = require('../models/Health');
 
 // Get latest ESP32 GPS data
 const getLatestData = async (req, res) => {
@@ -761,6 +762,55 @@ const testESP32DataChange = async (req, res) => {
   }
 };
 
+// Save a new measurement
+exports.saveMeasurement = async (req, res) => {
+  try {
+    const { heartRate, systolic, diastolic } = req.body;
+    const userId = req.user._id || req.user.id;
+    if (!heartRate || !systolic || !diastolic) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+    const measurement = new Health({
+      user: userId,
+      heartRate,
+      systolic,
+      diastolic,
+      timestamp: new Date()
+    });
+    await measurement.save();
+    res.json({ success: true, measurement });
+  } catch (error) {
+    console.error('Error saving measurement:', error);
+    res.status(500).json({ message: 'Error saving measurement' });
+  }
+};
+
+// Get last 7 days of measurements, averaged per day
+exports.getWeeklyReport = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    const data = await Health.aggregate([
+      { $match: { user: typeof userId === 'string' ? require('mongoose').Types.ObjectId(userId) : userId, timestamp: { $gte: sevenDaysAgo } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
+          avgHeartRate: { $avg: '$heartRate' },
+          avgSystolic: { $avg: '$systolic' },
+          avgDiastolic: { $avg: '$diastolic' },
+          date: { $first: '$timestamp' }
+        }
+      },
+      { $sort: { date: 1 } }
+    ]);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching weekly report:', error);
+    res.status(500).json({ message: 'Error fetching weekly report' });
+  }
+};
+
 module.exports = {
   getLatestData,
   getDataHistory,
@@ -774,5 +824,7 @@ module.exports = {
   debugFirebaseData,
   getCurrentHealthData,
   getRawESP32Data,
-  testESP32DataChange
+  testESP32DataChange,
+  saveMeasurement: exports.saveMeasurement,
+  getWeeklyReport: exports.getWeeklyReport
 }; 
