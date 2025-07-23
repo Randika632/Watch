@@ -801,7 +801,7 @@ exports.getWeeklyReport = async (req, res) => {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
     const data = await Health.aggregate([
-      { $match: { user: mongoose.Types.ObjectId(userId), timestamp: { $gte: sevenDaysAgo } } },
+      { $match: { user: new mongoose.Types.ObjectId(userId), timestamp: { $gte: sevenDaysAgo } } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
