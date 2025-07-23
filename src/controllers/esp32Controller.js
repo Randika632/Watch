@@ -794,10 +794,14 @@ exports.saveMeasurement = async (req, res) => {
 exports.getWeeklyReport = async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID not found' });
+    }
+    const mongoose = require('mongoose');
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
     const data = await Health.aggregate([
-      { $match: { user: typeof userId === 'string' ? require('mongoose').Types.ObjectId(userId) : userId, timestamp: { $gte: sevenDaysAgo } } },
+      { $match: { user: mongoose.Types.ObjectId(userId), timestamp: { $gte: sevenDaysAgo } } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
@@ -812,7 +816,7 @@ exports.getWeeklyReport = async (req, res) => {
     res.json(data);
   } catch (error) {
     console.error('Error fetching weekly report:', error);
-    res.status(500).json({ message: 'Error fetching weekly report' });
+    res.status(500).json({ message: 'Error fetching weekly report', error: error.message });
   }
 };
 
