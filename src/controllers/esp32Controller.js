@@ -762,6 +762,11 @@ const testESP32DataChange = async (req, res) => {
   }
 };
 
+// Add a basic getHealth if not defined
+const getHealth = async (req, res) => {
+  res.json({ status: 'ok', message: 'Health route is working!' });
+};
+
 // Save a new measurement
 exports.saveMeasurement = async (req, res) => {
   try {
@@ -825,6 +830,7 @@ module.exports = {
   getCurrentHealthData,
   getRawESP32Data,
   testESP32DataChange,
+  getHealth,
   saveMeasurement: exports.saveMeasurement,
   getWeeklyReport: exports.getWeeklyReport
 }; 
