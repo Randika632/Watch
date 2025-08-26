@@ -95,13 +95,27 @@ const getStatus = async (req, res) => {
     const snapshot = await dataRef.once('value');
     const data = snapshot.val() || {};
     
+    // Compute a robust lastUpdate
+    // Prefer 'last_update' (ms). If only 'timestamp' exists, handle seconds vs ms. Fallback to now.
+    const rawTs = (typeof data.last_update !== 'undefined') ? data.last_update : data.timestamp;
+    let lastUpdateIso;
+    if (typeof rawTs === 'number') {
+      const ms = rawTs > 1e12 ? rawTs : rawTs * 1000; // if seconds, convert to ms
+      lastUpdateIso = new Date(ms).toISOString();
+    } else if (typeof rawTs === 'string') {
+      const parsed = Date.parse(rawTs);
+      lastUpdateIso = Number.isNaN(parsed) ? new Date().toISOString() : new Date(parsed).toISOString();
+    } else {
+      lastUpdateIso = new Date().toISOString();
+    }
+
     // Return simplified status object matching frontend expectations
     // Default all values to false if data is missing
     const status = {
       wifi: Boolean(data.wifi_connected),
       gps: Boolean(data.gps_valid),
       heartbeat: Boolean(data.bpm_valid),
-      lastUpdate: data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()
+      lastUpdate: lastUpdateIso
     };
 
     // Update cache
